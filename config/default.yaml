@@ -1,0 +1,85 @@
+# ============================================
+# DEFAULT CONFIGURATION - Trading Core
+# ============================================
+# Questo file contiene la configurazione base che viene caricata per tutti gli ambienti.
+# Gli override per ambiente specifico vengono caricati da development.yaml, production.yaml, test.yaml
+
+# ============================================
+# APP - Configurazione applicazione
+# ============================================
+app:
+  # Nome dell'applicazione (usato nei log e metriche)
+  name: "trading-core"
+  # Versione dell'applicazione
+  version: "0.1.0"
+  # Ambiente di esecuzione (development, production, test)
+  environment: "development"
+
+# ============================================
+# DATABASE - Configurazione PostgreSQL
+# ============================================
+database:
+  # Host del database
+  host: "localhost"
+  # Porta del database (1-65535)
+  port: 5432
+  # Nome del database
+  name: "trading_db"
+  # Utente del database
+  user: "trader"
+  # Password del database (da environment variable)
+  password: "${DB_PASSWORD}"
+  # Numero massimo di connessioni nel pool
+  max_connections: 10
+  # Timeout connessione in millisecondi
+  timeout_ms: 5000
+
+# ============================================
+# REDIS - Configurazione Cache
+# ============================================
+redis:
+  # Host Redis
+  host: "localhost"
+  # Porta Redis (1-65535)
+  port: 6379
+  # Password Redis (null per nessuna password)
+  password: null
+  # Database Redis (0-15)
+  db: 0
+  # Timeout connessione in millisecondi
+  timeout_ms: 2000
+
+# ============================================
+# LOGGING - Configurazione logging
+# ============================================
+logging:
+  # Livello di log: trace, debug, info, warn, error
+  level: "info"
+  # Formato log: json, pretty, compact
+  format: "json"
+  # Output: stdout, stderr, o percorso file
+  output: "stdout"
+
+# ============================================
+# TRADING - Configurazione trading
+# ============================================
+trading:
+  # Abilita gestione rischio automatica
+  risk_enabled: true
+  # Dimensione massima posizione (in lotti/contracts)
+  max_position_size: 100
+  # Exchange di default (IB, SIMULATED)
+  default_exchange: "IB"
+  # Modalità paper trading
+  paper_trading: true
+
+# ============================================
+# SERVER - Configurazione HTTP API
+# ============================================
+server:
+  # Host del server (0.0.0.0 per bind su tutte le interfacce)
+  host: "127.0.0.1"
+  # Porta del server (1-65535)
+  port: 8080
+  # Timeout richieste HTTP in millisecondi
+  request_timeout_ms: 30000

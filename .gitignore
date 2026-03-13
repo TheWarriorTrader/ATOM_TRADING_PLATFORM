@@ -1,0 +1,62 @@
+# Rust
+target/
+Cargo.lock
+**/*.rs.bk
+*.pdb
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Environment (SECRETS!)
+.env
+.env.local
+.env.production
+
+# Database data
+db/data/
+
+# Configuration files (keep defaults, ignore local overrides)
+config/local.yaml
+config/*.local.yaml
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+*.dump
+*.sql~
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+dist/
+build/
+*.AppImage
+*.exe
+*.dmg
+
+# Session state (local)
+.session_state
+
+# Temporary files
+*.tmp
+*.temp

@@ -1,0 +1,63 @@
+# Rustfmt Configuration
+# https://rust-lang.github.io/rustfmt/
+
+# Edition
+edition = "2021"
+
+# Line width
+max_width = 100
+comment_width = 80
+
+# Formatting style
+hard_tabs = false
+tab_spaces = 4
+newline_style = "Unix"
+
+# Imports
+imports_layout = "Mixed"
+imports_granularity = "Crate"
+reorder_imports = true
+reorder_modules = true
+
+# Functions and macros
+fn_params_layout = "Tall"
+fn_single_line = false
+where_single_line = false
+
+# Structs and enums
+struct_lit_width = 18
+struct_variant_width = 35
+
+# Arrays and literals
+array_width = 60
+attr_fn_like_width = 70
+
+# Wrapping and breaking
+chain_width = 60
+single_line_if_else_max_width = 50
+
+# Comments and documentation
+wrap_comments = true
+format_code_in_doc_comments = true
+doc_comment_code_block_width = 100
+
+# Match expressions
+match_arm_blocks = true
+match_arm_leading_pipes = "Never"
+
+# Miscellaneous
+format_strings = true
+format_macro_matchers = true
+format_macro_bodies = true
+use_field_init_shorthand = true
+use_try_shorthand = true
+remove_nested_parens = true
+combine_control_expr = true
+
+# Error handling
+report_todo = "Always"
+report_fixme = "Always"
+
+# Skip formatting for specific files or patterns
+# skip = []
+# ignore = []

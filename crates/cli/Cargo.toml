@@ -1,0 +1,41 @@
+[package]
+name = "cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "trading-core"
+path = "src/main.rs"
+
+[dependencies]
+# Domain, Application, Infrastructure dependencies
+domain = { workspace = true }
+application = { workspace = true }
+infrastructure = { workspace = true }
+
+# Async runtime
+tokio = { workspace = true }
+
+# Tracing
+tracing = { workspace = true }
+
+# CLI
+clap = { workspace = true, features = ["env"] }
+
+# Error handling
+anyhow = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Utilities
+uuid = { workspace = true }
+chrono = { workspace = true }
+rust_decimal = { workspace = true }
+
+# Configuration
+config = { workspace = true }

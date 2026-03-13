@@ -1,0 +1,42 @@
+# ============================================
+# DEVELOPMENT CONFIGURATION - Trading Core
+# ============================================
+# Override per ambiente di sviluppo locale.
+# Caricato automaticamente quando APP_ENVIRONMENT=development
+
+app:
+  environment: "development"
+
+database:
+  # In development usiamo localhost
+  host: "localhost"
+  port: 5432
+  name: "trading_db"
+  user: "trader"
+  max_connections: 5
+  timeout_ms: 5000
+
+redis:
+  host: "localhost"
+  port: 6379
+  db: 0
+  timeout_ms: 2000
+
+logging:
+  # In development usiamo livello debug per vedere più dettagli
+  level: "debug"
+  # Formato pretty per leggibilità
+  format: "pretty"
+  output: "stdout"
+
+trading:
+  # In development abilitiamo sempre paper trading
+  risk_enabled: true
+  max_position_size: 100
+  default_exchange: "IB"
+  paper_trading: true
+
+server:
+  host: "127.0.0.1"
+  port: 8080
+  request_timeout_ms: 30000

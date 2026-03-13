@@ -1,0 +1,6 @@
+#!/bin/bash
+# Wrapper script per pip nel virtual environment del progetto
+# Uso: ./pip [args...]
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+"${SCRIPT_DIR}/.venv/bin/pip" "$@"

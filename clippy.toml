@@ -1,0 +1,77 @@
+# Clippy Configuration
+# https://rust-lang.github.io/rust-clippy/master/index.html
+
+# Lint levels
+# deny: warnings are errors
+# warn: warnings are displayed
+# allow: warnings are suppressed
+
+# Pedantic lints - strict code quality
+# These catch common mistakes and enforce best practices
+doc-markdown = "warn"
+missing-docs-in-private-items = "allow"
+missing-errors-doc = "warn"
+missing-panics-doc = "warn"
+missing-safety-doc = "warn"
+
+# Performance lints
+double-comparisons = "deny"
+expect-fun-call = "deny"
+explicit-deref-methods = "warn"
+explicit-iter-loop = "warn"
+filter-map-next = "deny"
+flat-map-option = "deny"
+from-iter-instead-of-collect = "warn"
+
+# Correctness lints
+correctness = "deny"
+
+# Suspicious patterns
+suspicious = "deny"
+
+# Complexity lints
+complexity = "warn"
+too-many-lines-threshold = 100
+
+# Style lints
+style = "warn"
+
+# Cargo lints
+cargo = "warn"
+
+# Nursery lints (experimental but useful)
+# These may have false positives, but catch interesting patterns
+
+# Allowed patterns
+# Some lints that are too noisy for this codebase
+module-name-repetitions = "allow"
+struct-field-names = "allow"
+enum-variant-names = "allow"
+
+# Cognitive complexity
+cognitive-complexity-threshold = 25
+
+# Type complexity
+type-complexity-threshold = 250
+
+# Function arguments
+too-many-arguments-threshold = 7
+
+# Macro and trait patterns
+allow-mixed-uninlined-format-args = true
+allow-print-in-tests = true
+allow-unwrap-in-tests = true
+
+# MSRV (Minimum Supported Rust Version)
+# Uncomment when MSRV is established
+# msrv = "1.70.0"
+
+# Avoid breaking public API
+check-private-items = true
+
+# Enforce documentation
+check-inconsistent-struct-field-initializers = true
+
+# Async/await patterns
+# await-holding-invalid-types expects a sequence, not a string - commented out
+# await-holding-invalid-types = []

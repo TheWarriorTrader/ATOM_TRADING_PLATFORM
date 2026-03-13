@@ -1,0 +1,59 @@
+[package]
+name = "infrastructure"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# Domain and Application dependencies
+domain = { workspace = true }
+application = { workspace = true }
+
+# OpenSSL vendored per evitare dipendenze di sistema
+openssl = { workspace = true }
+
+# Async runtime
+tokio = { workspace = true }
+
+# Tracing
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# Database
+sqlx = { workspace = true }
+deadpool-postgres = { workspace = true }
+
+# Redis
+redis = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# HTTP Client
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+
+# Utilities
+async-trait = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+rust_decimal = { workspace = true }
+
+# Configuration
+config = { workspace = true }
+
+# Validation
+validator = { version = "0.18", features = ["derive"] }
+
+# Singleton pattern
+once_cell = { workspace = true }
+
+[dev-dependencies]
+mockall = { workspace = true }
+tokio-test = "0.4"

@@ -1,0 +1,46 @@
+# ============================================
+# PRODUCTION CONFIGURATION - Trading Core
+# ============================================
+# Override per ambiente di produzione.
+# Caricato automaticamente quando APP_ENVIRONMENT=production
+# ATTENZIONE: Non modificare direttamente - usare environment variables!
+
+app:
+  environment: "production"
+
+database:
+  # In produzione il DB è tipicamente su un server separato
+  host: "${DB_HOST}"
+  port: 5432
+  name: "${DB_NAME}"
+  user: "${DB_USER}"
+  max_connections: 50
+  timeout_ms: 10000
+
+redis:
+  host: "${REDIS_HOST}"
+  port: 6379
+  password: "${REDIS_PASSWORD}"
+  db: 0
+  timeout_ms: 3000
+
+logging:
+  # In produzione logghiamo solo info e superiori
+  level: "info"
+  # JSON per facilitare parsing nei log aggregators (ELK, Datadog, etc.)
+  format: "json"
+  output: "stdout"
+
+trading:
+  # In produzione la gestione rischio è sempre attiva
+  risk_enabled: true
+  max_position_size: 500
+  default_exchange: "${DEFAULT_EXCHANGE}"
+  # ATTENZIONE: paper_trading va configurato via env var in produzione!
+  paper_trading: false
+
+server:
+  # In produzione bind su tutte le interfacce per Docker/K8s
+  host: "0.0.0.0"
+  port: 8080
+  request_timeout_ms: 60000

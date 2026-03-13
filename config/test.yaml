@@ -1,0 +1,44 @@
+# ============================================
+# TEST CONFIGURATION - Trading Core
+# ============================================
+# Override per ambiente di test (unit test e integration test).
+# Caricato automaticamente quando APP_ENVIRONMENT=test
+
+app:
+  environment: "test"
+
+database:
+  # In test usiamo un database dedicato
+  host: "localhost"
+  port: 5432
+  name: "trading_test_db"
+  user: "trader"
+  max_connections: 5
+  timeout_ms: 3000
+
+redis:
+  host: "localhost"
+  port: 6379
+  # Database 15 per test (evita conflitti con dev)
+  db: 15
+  timeout_ms: 1000
+
+logging:
+  # In test logghiamo solo error per pulizia output
+  level: "error"
+  format: "pretty"
+  output: "stdout"
+
+trading:
+  # In test disabilitiamo gestione rischio per velocità
+  risk_enabled: false
+  max_position_size: 1000
+  default_exchange: "SIMULATED"
+  # Sempre paper trading in test
+  paper_trading: true
+
+server:
+  host: "127.0.0.1"
+  # Porta diversa per evitare conflitti
+  port: 18080
+  request_timeout_ms: 5000
