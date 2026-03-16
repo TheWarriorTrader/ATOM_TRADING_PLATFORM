@@ -3,6 +3,11 @@
 //! Command-line interface for the trading platform.
 //! This is the binary entry point that depends on all other crates.
 
+mod commands {
+    pub mod ingest;
+    pub mod trading;
+}
+
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -24,7 +29,7 @@ use infrastructure::{
     external::{
         ConsoleNotificationAdapter, HttpClient, MockMarketDataAdapter, MockOrderExecutionAdapter,
     },
-    logging,
+    logging, CorrelationId, TracingConfig,
 };
 
 /// CLI arguments
@@ -100,6 +105,10 @@ enum Commands {
         #[arg(short, long, default_value = "text")]
         format: ConfigOutputFormat,
     },
+    /// Ingest market data from providers
+    Ingest(commands::ingest::IngestCommand),
+    /// Trading commands (place-order, cancel-order, get-positions, get-orders)
+    Trading(commands::trading::TradingCommand),
 }
 
 /// Output format for config command
@@ -211,16 +220,37 @@ async fn main() -> Result<()> {
     // Load configuration
     let config = load_configuration(cli.config, cli.environment)?;
 
-    // Initialize logging
-    logging::init_tracing(&infrastructure::config::LoggingConfig {
+    // Initialize logging with enterprise configuration
+    let tracing_config = TracingConfig {
         level: config.logging.level.clone(),
-        format: config.logging.format.clone(),
-        output: config.logging.output.clone(),
-    })?;
+        format: config.logging.format.as_str().into(),
+        output: config.logging.output.as_str().into(),
+        enable_correlation_ids: true,
+        enable_span_events: false,
+        include_thread_ids: config.app.environment == "production",
+        include_target: true,
+    };
+    logging::init_tracing(&tracing_config)?;
 
-    info!("Starting trading-core CLI");
-    info!("Environment: {}", config.app.environment);
-    info!("Version: {}", config.app.version);
+    // Create root correlation ID for this CLI invocation
+    let correlation_id = CorrelationId::new();
+    let root_span = tracing::span!(
+        tracing::Level::INFO,
+        "cli_execution",
+        correlation_id = %correlation_id,
+        service = env!("CARGO_PKG_NAME"),
+        version = env!("CARGO_PKG_VERSION")
+    );
+
+    // Execute within the root span context
+    let _enter = root_span.enter();
+
+    info!(
+        correlation_id = %correlation_id,
+        environment = %config.app.environment,
+        version = %config.app.version,
+        "Starting trading-core CLI"
+    );
 
     // Create application context with mock implementations
     let ctx = Arc::new(AppContext {
@@ -264,6 +294,12 @@ async fn main() -> Result<()> {
         }
         Commands::Config { .. } => {
             // Already handled above
+        }
+        Commands::Ingest(cmd) => {
+            cmd.execute(&config).await?;
+        }
+        Commands::Trading(cmd) => {
+            cmd.execute(&config).await?;
         }
     }
 
@@ -342,10 +378,11 @@ fn display_config(config: &AppConfig, format: ConfigOutputFormat) -> Result<()> 
 }
 
 /// Runs the trading server
+#[tracing::instrument(skip(config), fields(service = "server"))]
 async fn run_server(config: &AppConfig, host: &str, port: u16) -> Result<()> {
-    info!("Starting server on {}:{}", host, port);
-    info!("Database: {}", config.database.masked_url());
-    info!("Redis: {}", config.redis.masked_url());
+    info!(host = %host, port = port, "Starting server");
+    info!(database = %config.database.masked_url(), "Database configured");
+    info!(redis = %config.redis.masked_url(), "Redis configured");
 
     // In a full implementation, this would start:
     // - HTTP API server
@@ -365,8 +402,9 @@ async fn run_server(config: &AppConfig, host: &str, port: u16) -> Result<()> {
 }
 
 /// Lists all accounts
+#[tracing::instrument]
 async fn list_accounts() -> Result<()> {
-    println!("📋 Listing accounts...");
+    info!("Listing accounts");
     // In a full implementation, this would:
     // 1. Connect to database
     // 2. Fetch all accounts
@@ -376,10 +414,11 @@ async fn list_accounts() -> Result<()> {
 }
 
 /// Lists positions
+#[tracing::instrument(fields(account_id = ?account_id))]
 async fn list_positions(account_id: Option<EntityId>) -> Result<()> {
     match account_id {
-        Some(id) => println!("📈 Listing positions for account {}...", id),
-        None => println!("📈 Listing all positions..."),
+        Some(id) => info!(account_id = %id, "Listing positions for account"),
+        None => info!("Listing all positions"),
     }
     // In a full implementation, this would fetch from database
     println!("No positions found (mock implementation)");
@@ -387,6 +426,7 @@ async fn list_positions(account_id: Option<EntityId>) -> Result<()> {
 }
 
 /// Creates a new order
+#[tracing::instrument(skip(ctx), fields(account_id = %account_id, symbol = %symbol))]
 async fn create_order(
     ctx: Arc<AppContext>,
     account_id: EntityId,
@@ -396,10 +436,9 @@ async fn create_order(
     order_type: OrderTypeArg,
 ) -> Result<()> {
     info!(
-        account_id = %account_id,
-        symbol = %symbol,
         side = ?side,
         quantity = %quantity,
+        order_type = ?order_type,
         "Creating order"
     );
 
@@ -437,8 +476,9 @@ async fn create_order(
 }
 
 /// Checks system health
+#[tracing::instrument(skip(config))]
 async fn check_health(config: &AppConfig) -> Result<()> {
-    println!("🏥 Checking system health...");
+    info!("Checking system health");
 
     // Check database connectivity
     print!("  Database... ");
@@ -459,8 +499,9 @@ async fn check_health(config: &AppConfig) -> Result<()> {
 }
 
 /// Initializes the database
+#[tracing::instrument(skip(config))]
 async fn init_database(config: &AppConfig) -> Result<()> {
-    println!("🗄️  Initializing database...");
+    info!("Initializing database");
 
     let pool = DatabasePool::new(&config.database).await?;
     pool.migrate().await?;

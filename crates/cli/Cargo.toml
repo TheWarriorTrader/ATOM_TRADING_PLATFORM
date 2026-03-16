@@ -18,6 +18,7 @@ infrastructure = { workspace = true }
 
 # Async runtime
 tokio = { workspace = true }
+async-trait = { workspace = true }
 
 # Tracing
 tracing = { workspace = true }

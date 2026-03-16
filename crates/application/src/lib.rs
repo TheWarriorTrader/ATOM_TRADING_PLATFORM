@@ -43,6 +43,29 @@ pub mod errors;
 /// Port interfaces (driven by infrastructure)
 pub mod ports;
 
+/// Data pipeline orchestrator for market data ingestion
+pub mod data_pipeline;
+
+/// Risk management module for pre-trade validation
+pub mod risk;
+
+/// Trading service for order orchestration
+pub mod trading_service;
+
+/// Order lifecycle manager for handling execution events
+pub mod order_lifecycle;
+
 // Re-export commonly used types
+pub use order_lifecycle::{
+    DeadLetterEntry, DeadLetterQueue, LifecycleConfig, LifecycleError, OrderLifecycleManager,
+};
 pub use dto::*;
 pub use errors::{ApplicationError, ApplicationResult};
+pub use trading_service::{TradingError, TradingResult, TradingService};
+
+// Re-export data pipeline types
+pub use data_pipeline::{
+    CircuitBreaker, CircuitState, DataPipeline, EventBusPort as PipelineEventBusPort, HealthStatus,
+    PipelineConfig, PipelineError, PipelineMetrics, PipelineMetricsSnapshot, PipelineResult,
+    PipelineState,
+};
