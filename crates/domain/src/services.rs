@@ -68,9 +68,10 @@ impl OrderService {
         order: &mut Order,
         reason: impl Into<Option<String>>,
     ) -> DomainResult<OrderCancelled> {
-        order.update_status(OrderStatus::Cancelled)?;
+        let reason_str = reason.into().unwrap_or_else(|| "user_request".to_string());
+        order.cancel(reason_str.clone())?;
 
-        let event = OrderCancelled::new(order.id(), order.account_id(), reason);
+        let event = OrderCancelled::new(order.id(), order.account_id(), Some(reason_str));
 
         info!(
             order_id = %order.id(),
@@ -91,7 +92,7 @@ impl OrderService {
         fill_qty: Quantity,
         fill_price: Price,
     ) -> DomainResult<OrderFilled> {
-        order.fill(fill_qty)?;
+        order.fill(fill_qty, fill_price)?;
 
         let event = OrderFilled::new(
             order.id(),
@@ -100,7 +101,7 @@ impl OrderService {
             fill_qty,
             fill_price,
             order.filled_quantity(),
-            order.status() == OrderStatus::Filled,
+            order.status().is_filled(),
         );
 
         info!(

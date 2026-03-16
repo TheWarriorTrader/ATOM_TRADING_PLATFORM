@@ -153,7 +153,7 @@ impl FillOrderUseCase {
             .map_err(|e| ApplicationError::repository(e.to_string()))?;
 
         // Notify
-        let level = if order.status() == domain::OrderStatus::Filled {
+        let level = if matches!(order.status(), domain::OrderStatus::Filled { .. }) {
             NotificationLevel::Info
         } else {
             NotificationLevel::Info

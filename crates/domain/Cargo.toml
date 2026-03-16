@@ -25,6 +25,9 @@ thiserror = { workspace = true }
 # Async traits
 async-trait = { workspace = true }
 
+# Async runtime (for mpsc channels)
+tokio = { workspace = true }
+
 # Tracing
 tracing = { workspace = true }
 

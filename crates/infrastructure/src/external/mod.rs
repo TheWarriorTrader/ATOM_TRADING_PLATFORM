@@ -2,6 +2,8 @@
 //!
 //! External API clients and adapters (broker APIs, market data providers).
 
+pub mod ib;
+
 use async_trait::async_trait;
 use reqwest::Client;
 

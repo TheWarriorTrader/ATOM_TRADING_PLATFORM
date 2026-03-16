@@ -35,10 +35,12 @@ pub enum OrderTypeDto {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum OrderStatusDto {
+    /// Order created locally but not yet submitted
+    Created,
+    /// Order submitted to broker/exchange
+    Submitted,
     /// Order is pending
     Pending,
-    /// Order is open/working
-    Open,
     /// Order is partially filled
     PartiallyFilled,
     /// Order is completely filled
@@ -185,7 +187,6 @@ impl From<domain::entities::OrderSide> for OrderSideDto {
         match side {
             domain::entities::OrderSide::Buy => Self::Buy,
             domain::entities::OrderSide::Sell => Self::Sell,
-            _ => Self::Buy, // Fallback for non-exhaustive
         }
     }
 }
@@ -214,13 +215,14 @@ impl From<domain::entities::OrderType> for OrderTypeDto {
 impl From<domain::entities::OrderStatus> for OrderStatusDto {
     fn from(status: domain::entities::OrderStatus) -> Self {
         match status {
-            domain::entities::OrderStatus::Pending => Self::Pending,
-            domain::entities::OrderStatus::Open => Self::Open,
-            domain::entities::OrderStatus::PartiallyFilled => Self::PartiallyFilled,
-            domain::entities::OrderStatus::Filled => Self::Filled,
-            domain::entities::OrderStatus::Cancelled => Self::Cancelled,
-            domain::entities::OrderStatus::Rejected => Self::Rejected,
-            _ => Self::Pending, // Fallback for non-exhaustive
+            domain::entities::OrderStatus::Created => Self::Created,
+            domain::entities::OrderStatus::Submitted { .. } => Self::Submitted,
+            domain::entities::OrderStatus::Pending { .. } => Self::Pending,
+            domain::entities::OrderStatus::PartiallyFilled { .. } => Self::PartiallyFilled,
+            domain::entities::OrderStatus::Filled { .. } => Self::Filled,
+            domain::entities::OrderStatus::Cancelled { .. } => Self::Cancelled,
+            domain::entities::OrderStatus::Rejected { .. } => Self::Rejected,
+            _ => Self::Pending, // Fallback for future variants
         }
     }
 }

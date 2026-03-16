@@ -941,8 +941,8 @@ impl From<Signal> for TradingEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::entities::{Bar, Order, OrderType, PositionDirection, Tick};
-    use crate::values::{Currency, Price, Quantity, Side, Symbol, TimeFrame, Volume};
+    use crate::entities::{Bar, Fill, Order, OrderType, PositionDirection, Position, Tick};
+    use crate::values::{Currency, OrderId, Price, Quantity, Side, Symbol, TimeFrame, Volume};
     use rust_decimal::Decimal;
 
     fn create_test_bar() -> Bar {
@@ -973,12 +973,14 @@ mod tests {
     }
 
     fn create_test_order() -> Order {
-        Order::new(
+        Order::new_with_id(
+            OrderId::generate(),
             Uuid::new_v4(),
             Symbol::new("AAPL").unwrap(),
             Side::Buy,
-            OrderType::Market,
             Quantity::new(Decimal::new(100, 0)).unwrap(),
+            OrderType::Market,
+            crate::values::TimeInForce::Day,
             None,
             None,
         )
@@ -987,10 +989,12 @@ mod tests {
 
     fn create_test_fill() -> Fill {
         Fill::new(
-            Utc::now(),
+            OrderId::generate(),
+            Symbol::new("AAPL").unwrap(),
             Quantity::new(Decimal::new(100, 0)).unwrap(),
             Price::new(Decimal::new(15050, 2)).unwrap(),
             Side::Buy,
+            Utc::now(),
         )
     }
 

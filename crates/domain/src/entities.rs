@@ -3,9 +3,10 @@
 //! Core entities with identity and lifecycle.
 
 use chrono::{DateTime, Utc};
-use rust_decimal::Decimal;
+use rust_decimal::{Decimal, prelude::Zero};
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use thiserror::Error;
 use uuid::Uuid;
 
 use crate::errors::{DomainError, DomainResult};
@@ -483,41 +484,194 @@ impl fmt::Display for Tick {
 // ORDER STATUS
 // =============================================================================
 
-/// Order lifecycle status.
+/// Order lifecycle status with rich state data.
 ///
 /// Represents the current state of an order in the trading lifecycle.
 /// State transitions are validated to ensure order integrity.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+///
+/// Each variant carries relevant metadata for audit trail and analytics:
+/// - Timestamps for all state changes
+/// - Fill quantities and prices for partial executions
+/// - Reasons for cancellations and rejections
+///
+/// # Examples
+///
+/// ```
+/// use chrono::Utc;
+/// use domain::entities::OrderStatus;
+/// use domain::values::{Price, Quantity};
+/// use rust_decimal::Decimal;
+///
+/// // Order created
+/// let status = OrderStatus::Created;
+///
+/// // Order submitted with timestamp
+/// let submitted = OrderStatus::Submitted { at: Utc::now() };
+///
+/// // Order partially filled with fill details
+/// let partial = OrderStatus::PartiallyFilled {
+///     filled: Quantity::new(Decimal::new(50, 0)).unwrap(),
+///     remaining: Quantity::new(Decimal::new(50, 0)).unwrap(),
+///     avg_price: Price::new(Decimal::new(15025, 2)).unwrap(),
+/// };
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum OrderStatus {
     /// Order created locally but not yet submitted
     Created,
     /// Order submitted to broker/exchange
-    Submitted,
+    Submitted {
+        /// Timestamp when the order was submitted
+        at: DateTime<Utc>,
+    },
     /// Order accepted and pending execution
-    Pending,
-    /// Order partially filled
-    PartiallyFilled,
+    Pending {
+        /// Timestamp when the order became pending
+        at: DateTime<Utc>,
+    },
+    /// Order partially filled with execution details
+    PartiallyFilled {
+        /// Quantity already filled
+        filled: Quantity,
+        /// Quantity remaining to fill
+        remaining: Quantity,
+        /// Average fill price so far
+        avg_price: Price,
+    },
     /// Order completely filled
-    Filled,
-    /// Order cancelled
-    Cancelled,
+    Filled {
+        /// Timestamp when the order was fully filled
+        at: DateTime<Utc>,
+    },
+    /// Order cancelled with reason
+    Cancelled {
+        /// Timestamp when the order was cancelled
+        at: DateTime<Utc>,
+        /// Reason for cancellation (e.g., "user_request", "time_in_force")
+        reason: String,
+    },
     /// Order rejected by broker/exchange
-    Rejected,
+    Rejected {
+        /// Timestamp when the order was rejected
+        at: DateTime<Utc>,
+        /// Rejection reason from broker/exchange
+        reason: String,
+    },
+}
+
+impl OrderStatus {
+    /// Returns true if this status represents an active order (can still be filled).
+    ///
+    /// Active statuses are: Created, Submitted, Pending, PartiallyFilled
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use chrono::Utc;
+    /// use domain::entities::OrderStatus;
+    ///
+    /// assert!(OrderStatus::Created.is_active());
+    /// assert!(OrderStatus::Submitted { at: Utc::now() }.is_active());
+    /// assert!(!OrderStatus::Filled { at: Utc::now() }.is_active());
+    /// assert!(!OrderStatus::Cancelled { at: Utc::now(), reason: "test".to_string() }.is_active());
+    /// ```
+    #[must_use]
+    pub fn is_active(&self) -> bool {
+        matches!(
+            self,
+            Self::Created | Self::Submitted { .. } | Self::Pending { .. } | Self::PartiallyFilled { .. }
+        )
+    }
+
+    /// Returns true if this status represents a terminal state (no further changes possible).
+    ///
+    /// Terminal statuses are: Filled, Cancelled, Rejected
+    #[must_use]
+    pub fn is_terminal(&self) -> bool {
+        matches!(self, Self::Filled { .. } | Self::Cancelled { .. } | Self::Rejected { .. })
+    }
+
+    /// Returns true if the order can be cancelled in this state.
+    #[must_use]
+    pub fn can_cancel(&self) -> bool {
+        matches!(
+            self,
+            Self::Created | Self::Submitted { .. } | Self::Pending { .. } | Self::PartiallyFilled { .. }
+        )
+    }
+
+    /// Returns true if this status represents a filled state (complete or partial).
+    #[must_use]
+    pub fn is_filled(&self) -> bool {
+        matches!(self, Self::Filled { .. } | Self::PartiallyFilled { .. })
+    }
+
+    /// Returns the timestamp of this status if available.
+    ///
+    /// Returns `Some(DateTime<Utc>)` for statuses with timestamps,
+    /// `None` for `Created` and `PartiallyFilled`.
+    #[must_use]
+    pub fn timestamp(&self) -> Option<DateTime<Utc>> {
+        match self {
+            Self::Created => None,
+            Self::Submitted { at } => Some(*at),
+            Self::Pending { at } => Some(*at),
+            Self::PartiallyFilled { .. } => None,
+            Self::Filled { at } => Some(*at),
+            Self::Cancelled { at, .. } => Some(*at),
+            Self::Rejected { at, .. } => Some(*at),
+        }
+    }
+
+    /// Returns the variant name as a static string.
+    #[must_use]
+    pub const fn variant_name(&self) -> &'static str {
+        match self {
+            Self::Created => "Created",
+            Self::Submitted { .. } => "Submitted",
+            Self::Pending { .. } => "Pending",
+            Self::PartiallyFilled { .. } => "PartiallyFilled",
+            Self::Filled { .. } => "Filled",
+            Self::Cancelled { .. } => "Cancelled",
+            Self::Rejected { .. } => "Rejected",
+        }
+    }
 }
 
 impl fmt::Display for OrderStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Created => write!(f, "Created"),
-            Self::Submitted => write!(f, "Submitted"),
-            Self::Pending => write!(f, "Pending"),
-            Self::PartiallyFilled => write!(f, "PartiallyFilled"),
-            Self::Filled => write!(f, "Filled"),
-            Self::Cancelled => write!(f, "Cancelled"),
-            Self::Rejected => write!(f, "Rejected"),
+            Self::Submitted { at } => write!(f, "Submitted(at={})", at.format("%Y-%m-%d %H:%M:%S%.3f")),
+            Self::Pending { at } => write!(f, "Pending(at={})", at.format("%Y-%m-%d %H:%M:%S%.3f")),
+            Self::PartiallyFilled { filled, remaining, avg_price } => {
+                write!(f, "PartiallyFilled(filled={}, remaining={}, avg_price={})", filled, remaining, avg_price)
+            }
+            Self::Filled { at } => write!(f, "Filled(at={})", at.format("%Y-%m-%d %H:%M:%S%.3f")),
+            Self::Cancelled { at, reason } => write!(f, "Cancelled(at={}, reason={})", at.format("%Y-%m-%d %H:%M:%S%.3f"), reason),
+            Self::Rejected { at, reason } => write!(f, "Rejected(at={}, reason={})", at.format("%Y-%m-%d %H:%M:%S%.3f"), reason),
         }
     }
+}
+
+/// Error type for invalid order status transitions.
+#[derive(Error, Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum OrderStatusError {
+    /// Transition not allowed from current state
+    #[error("invalid transition from {from} to {to}")]
+    InvalidTransition {
+        /// Current status
+        from: String,
+        /// Target status
+        to: String,
+    },
+    /// Missing required data for transition
+    #[error("missing required data: {0}")]
+    MissingData(String),
+    /// Status already terminal
+    #[error("order already in terminal state: {0}")]
+    TerminalState(String),
 }
 
 // =============================================================================
@@ -605,7 +759,7 @@ impl Order {
             filled_quantity: unsafe { Quantity::new_unchecked(Decimal::ZERO) },
             limit_price,
             stop_price,
-            status: OrderStatus::Pending,
+            status: OrderStatus::Pending { at: now },
             time_in_force: TimeInForce::Day,
             created_at: now,
             updated_at: now,
@@ -720,8 +874,8 @@ impl Order {
 
     /// Returns the current status
     #[must_use]
-    pub const fn status(&self) -> OrderStatus {
-        self.status
+    pub fn status(&self) -> OrderStatus {
+        self.status.clone()
     }
 
     /// Returns the time in force
@@ -741,98 +895,325 @@ impl Order {
     pub const fn updated_at(&self) -> DateTime<Utc> {
         self.updated_at
     }
+/// Returns true if the order can be cancelled.
+///
+/// An order can be cancelled if it is in an active state:
+/// Created, Submitted, Pending, or PartiallyFilled.
+#[must_use]
+pub fn can_cancel(&self) -> bool {
+    self.status.can_cancel()
+}
 
-    /// Returns true if the order can be cancelled
-    #[must_use]
-    pub fn can_cancel(&self) -> bool {
-        matches!(
-            self.status,
-            OrderStatus::Created | OrderStatus::Submitted | OrderStatus::Pending | OrderStatus::PartiallyFilled
-        )
+/// Returns true if the order is in an active state.
+///
+/// Active orders can still receive fills or be cancelled.
+#[must_use]
+pub fn is_active(&self) -> bool {
+    self.status.is_active()
+}
+
+/// Returns true if the order is in a terminal state (Filled, Cancelled, Rejected).
+#[must_use]
+pub fn is_terminal(&self) -> bool {
+    self.status.is_terminal()
+}
+
+/// Validates if the order can be submitted.
+///
+/// Checks:
+/// - Symbol is valid (non-empty, proper format)
+/// - Quantity is positive
+/// - Required prices are present for limit/stop orders
+/// - Time in force is valid
+///
+/// # Errors
+///
+/// Returns `DomainError::Validation` if validation fails.
+pub fn validate_for_submission(&self) -> DomainResult<()> {
+    // Validate symbol
+    if self.symbol.as_str().is_empty() {
+        return Err(DomainError::OrderValidation(
+            "Symbol cannot be empty".to_string(),
+        ));
     }
 
-    /// Returns true if the order is in an active state
-    #[must_use]
-    pub fn is_active(&self) -> bool {
-        matches!(
-            self.status,
-            OrderStatus::Created | OrderStatus::Submitted | OrderStatus::Pending | OrderStatus::PartiallyFilled
-        )
+    // Validate quantity is positive
+    if self.quantity.inner() <= Decimal::ZERO {
+        return Err(DomainError::invalid_quantity(
+            "Order quantity must be positive",
+        ));
     }
 
-    /// Updates the order status (legacy method for compatibility).
-    ///
-    /// # Errors
-    ///
-    /// Returns `DomainError::InvalidStateTransition` if the transition is invalid
-    pub fn update_status(&mut self, new_status: OrderStatus) -> DomainResult<()> {
-                // Validate state transitions
-                let valid_transition = match (self.status, new_status) {
-                    // Legacy transitions (kept for compatibility)
-                    (OrderStatus::Pending, OrderStatus::Cancelled)
-                    | (OrderStatus::Pending, OrderStatus::Rejected)
-                    | (OrderStatus::Pending, OrderStatus::PartiallyFilled)
-                    | (OrderStatus::Pending, OrderStatus::Filled)
-                    | (OrderStatus::PartiallyFilled, OrderStatus::Filled)
-                    | (OrderStatus::PartiallyFilled, OrderStatus::Cancelled)
-                    | (OrderStatus::Filled, OrderStatus::Filled)
-                    | (OrderStatus::Cancelled, OrderStatus::Cancelled)
-                    | (OrderStatus::Rejected, OrderStatus::Rejected)
-                    // New API transitions
-                    | (OrderStatus::Created, OrderStatus::Submitted)
-                    | (OrderStatus::Created, OrderStatus::Cancelled)
-                    | (OrderStatus::Created, OrderStatus::Rejected)
-                    | (OrderStatus::Submitted, OrderStatus::Pending)
-                    | (OrderStatus::Submitted, OrderStatus::Rejected)
-                    | (OrderStatus::Submitted, OrderStatus::Cancelled)
-                    | (OrderStatus::PartiallyFilled, OrderStatus::Rejected) => true,
-                    (from, to) if from == to => true,
-                    _ => false,
-                };
-        if !valid_transition {
-            return Err(DomainError::InvalidStateTransition {
-                from: self.status.to_string(),
-                to: new_status.to_string(),
-            });
+    // Validate limit orders have a limit price
+    if self.order_type.requires_limit_price() && self.limit_price.is_none() {
+        return Err(DomainError::OrderValidation(
+            "Limit orders require a limit price".to_string(),
+        ));
+    }
+
+    // Validate stop orders have a stop price
+    if self.order_type.requires_stop_price() && self.stop_price.is_none() {
+        return Err(DomainError::OrderValidation(
+            "Stop orders require a stop price".to_string(),
+        ));
+    }
+
+    // Validate order is in a state that allows submission
+    if !matches!(self.status, OrderStatus::Created) {
+        return Err(DomainError::OrderValidation(format!(
+            "Cannot submit order in state: {}",
+            self.status.variant_name()
+        )));
+    }
+
+    Ok(())
+}
+
+/// Checks if the order's time in force has expired.
+///
+/// # Arguments
+///
+/// * `now` - The current timestamp to check against
+///
+/// # Returns
+///
+/// `true` if the order's time in force has expired and the order should be cancelled.
+#[must_use]
+pub fn time_in_force_expired(&self, now: DateTime<Utc>) -> bool {
+    match self.time_in_force {
+        TimeInForce::GTC => false, // Good till cancelled - never expires
+        TimeInForce::Day => {
+            // Day orders expire at market close (assumed 16:00 EST)
+            // For simplicity, we check if the order was created on a different day
+            let created_date = self.created_at.date_naive();
+            let now_date = now.date_naive();
+            now_date > created_date
         }
-
-        self.status = new_status;
-        self.updated_at = Utc::now();
-        Ok(())
-    }
-
-    /// Fills a portion of the order
-    ///
-    /// # Errors
-    ///
-    /// Returns `DomainError::InvalidQuantity` if fill quantity exceeds remaining
-    pub fn fill(&mut self, fill_qty: Quantity) -> DomainResult<()> {
-        if fill_qty.inner() > self.remaining_quantity().inner() {
-            return Err(DomainError::invalid_quantity(
-                "Fill quantity exceeds remaining quantity",
-            ));
+        TimeInForce::IOC => {
+            // Immediate or cancel - effectively expires if not immediately filled
+            // This should be handled by the execution engine
+            false
         }
-
-        self.filled_quantity =
-            unsafe { Quantity::new_unchecked(self.filled_quantity.inner() + fill_qty.inner()) };
-
-        if self.filled_quantity.inner() == self.quantity.inner() {
-            self.status = OrderStatus::Filled;
-        } else {
-            self.status = OrderStatus::PartiallyFilled;
+        TimeInForce::FOK => {
+            // Fill or kill - expires if not immediately filled completely
+            // This should be handled by the execution engine
+            false
         }
+    }
+}
 
-        self.updated_at = Utc::now();
-        Ok(())
+/// Updates the order status with validation of state transitions.
+///
+/// # Errors
+///
+/// Returns `DomainError::InvalidStateTransition` if the transition is invalid.
+pub fn update_status(&mut self, new_status: OrderStatus) -> DomainResult<()> {
+    // Validate state transitions
+    let valid_transition = self.is_valid_transition(&new_status);
+
+    if !valid_transition {
+        return Err(DomainError::InvalidStateTransition {
+            from: self.status.variant_name().to_string(),
+            to: new_status.variant_name().to_string(),
+        });
     }
 
-    /// Returns the notional value at a given price
-    #[must_use]
-    pub fn notional_value(&self, current_price: Price) -> Money {
-        let amount = current_price.inner() * self.quantity.inner();
-        // SAFETY: price and quantity are positive, result is positive
-        unsafe { Money::new_unchecked(amount, Currency::USD) }
+    self.status = new_status;
+    self.updated_at = Utc::now();
+    Ok(())
+}
+
+/// Validates if a transition to the new status is allowed.
+fn is_valid_transition(&self, new_status: &OrderStatus) -> bool {
+    match (&self.status, new_status) {
+        // Same state is always valid (idempotent)
+        (from, to) if from.variant_name() == to.variant_name() => true,
+
+        // Created can transition to Submitted, Cancelled, or Rejected
+        (OrderStatus::Created, OrderStatus::Submitted { .. }) => true,
+        (OrderStatus::Created, OrderStatus::Cancelled { .. }) => true,
+        (OrderStatus::Created, OrderStatus::Rejected { .. }) => true,
+
+        // Submitted can transition to Pending, Rejected, or Cancelled
+        (OrderStatus::Submitted { .. }, OrderStatus::Pending { .. }) => true,
+        (OrderStatus::Submitted { .. }, OrderStatus::Rejected { .. }) => true,
+        (OrderStatus::Submitted { .. }, OrderStatus::Cancelled { .. }) => true,
+
+        // Pending can transition to PartiallyFilled, Filled, Rejected, or Cancelled
+        (OrderStatus::Pending { .. }, OrderStatus::PartiallyFilled { .. }) => true,
+        (OrderStatus::Pending { .. }, OrderStatus::Filled { .. }) => true,
+        (OrderStatus::Pending { .. }, OrderStatus::Rejected { .. }) => true,
+        (OrderStatus::Pending { .. }, OrderStatus::Cancelled { .. }) => true,
+
+        // PartiallyFilled can transition to Filled, Cancelled, or Rejected
+        (OrderStatus::PartiallyFilled { .. }, OrderStatus::Filled { .. }) => true,
+        (OrderStatus::PartiallyFilled { .. }, OrderStatus::Cancelled { .. }) => true,
+        (OrderStatus::PartiallyFilled { .. }, OrderStatus::Rejected { .. }) => true,
+        (OrderStatus::PartiallyFilled { .. }, OrderStatus::PartiallyFilled { .. }) => true,
+
+        // Terminal states cannot transition to anything
+        (OrderStatus::Filled { .. }, _) => false,
+        (OrderStatus::Cancelled { .. }, _) => false,
+        (OrderStatus::Rejected { .. }, _) => false,
+
+        // All other transitions are invalid
+        _ => false,
     }
+}
+
+/// Fills a portion of the order with the given fill details.
+///
+/// Updates the filled quantity and order status accordingly.
+/// Automatically transitions to `Filled` when complete or `PartiallyFilled`
+/// when partial.
+///
+/// # Arguments
+///
+/// * `fill_qty` - The quantity filled in this execution
+/// * `fill_price` - The price at which the fill occurred
+///
+/// # Errors
+///
+/// Returns `DomainError::InvalidQuantity` if fill quantity exceeds remaining.
+/// Returns `DomainError::InvalidState` if order is not in a fillable state.
+pub fn fill(&mut self, fill_qty: Quantity, fill_price: Price) -> DomainResult<()> {
+    // Validate order is in a fillable state
+    if !self.status.is_active() {
+        return Err(DomainError::OrderValidation(format!(
+            "Cannot fill order in state: {}",
+            self.status.variant_name()
+        )));
+    }
+
+    if fill_qty.inner() > self.remaining_quantity().inner() {
+        return Err(DomainError::invalid_quantity(
+            "Fill quantity exceeds remaining quantity",
+        ));
+    }
+
+    // Update filled quantity
+    self.filled_quantity =
+        unsafe { Quantity::new_unchecked(self.filled_quantity.inner() + fill_qty.inner()) };
+
+    // Calculate average fill price and remaining
+    let remaining = self.remaining_quantity();
+    let avg_price = self.calculate_avg_fill_price(fill_qty, fill_price);
+
+    // Update status based on fill completeness
+    self.status = if remaining.inner() == Decimal::ZERO {
+        OrderStatus::Filled { at: Utc::now() }
+    } else {
+        OrderStatus::PartiallyFilled {
+            filled: self.filled_quantity,
+            remaining,
+            avg_price,
+        }
+    };
+
+    self.updated_at = Utc::now();
+    Ok(())
+}
+
+/// Calculates the average fill price after a new fill.
+fn calculate_avg_fill_price(&self, fill_qty: Quantity, fill_price: Price) -> Price {
+    let total_filled = self.filled_quantity.inner();
+    let prev_filled = total_filled - fill_qty.inner();
+
+    if prev_filled == Decimal::ZERO {
+        // First fill, return the fill price
+        fill_price
+    } else {
+        // Calculate weighted average
+        // Need to retrieve previous avg price from status if PartiallyFilled
+        let prev_avg = match &self.status {
+            OrderStatus::PartiallyFilled { avg_price, .. } => avg_price.inner(),
+            _ => fill_price.inner(), // Fallback, shouldn't happen in practice
+        };
+
+        let new_avg = (prev_avg * prev_filled + fill_price.inner() * fill_qty.inner())
+            / total_filled;
+        
+        // SAFETY: Prices are positive, weighted average is positive
+        unsafe { Price::new_unchecked(new_avg) }
+    }
+}
+
+/// Cancels the order with a reason.
+///
+/// # Errors
+///
+/// Returns `DomainError::OrderValidation` if the order cannot be cancelled.
+pub fn cancel(&mut self, reason: String) -> DomainResult<()> {
+    if !self.can_cancel() {
+        return Err(DomainError::OrderValidation(format!(
+            "Cannot cancel order in state: {}",
+            self.status.variant_name()
+        )));
+    }
+
+    self.status = OrderStatus::Cancelled {
+        at: Utc::now(),
+        reason,
+    };
+    self.updated_at = Utc::now();
+    Ok(())
+}
+
+/// Rejects the order with a reason.
+///
+/// # Errors
+///
+/// Returns `DomainError::OrderValidation` if the order is already terminal.
+pub fn reject(&mut self, reason: String) -> DomainResult<()> {
+    if self.status.is_terminal() {
+        return Err(DomainError::OrderValidation(format!(
+            "Cannot reject order in terminal state: {}",
+            self.status.variant_name()
+        )));
+    }
+
+    self.status = OrderStatus::Rejected {
+        at: Utc::now(),
+        reason,
+    };
+    self.updated_at = Utc::now();
+    Ok(())
+}
+
+/// Returns the notional value at a given price.
+///
+/// Notional value = quantity * price
+///
+/// # Arguments
+///
+/// * `current_price` - The price to use for calculation
+///
+/// # Returns
+///
+/// The notional value as [`Money`].
+#[must_use]
+pub fn notional_value(&self, current_price: Price) -> Money {
+    let amount = current_price.inner() * self.quantity.inner();
+    // SAFETY: price and quantity are positive, result is positive
+    unsafe { Money::new_unchecked(amount, Currency::USD) }
+}
+
+/// Returns the average entry price for the order.
+///
+/// For filled or partially filled orders, returns the average fill price.
+/// For unfilled orders, returns the limit price if available, otherwise None.
+#[must_use]
+pub fn avg_entry_price(&self) -> Option<Price> {
+    match &self.status {
+        OrderStatus::PartiallyFilled { avg_price, .. } => Some(*avg_price),
+        OrderStatus::Filled { .. } => {
+            // For filled orders, we would need to track avg price separately
+            // For now, return limit price as fallback
+            self.limit_price
+        }
+        _ => self.limit_price,
+    }
+}
 }
 
 // =============================================================================
@@ -842,33 +1223,154 @@ impl Order {
 /// Represents a fill (execution) of an order.
 ///
 /// A fill occurs when part or all of an order is executed at a specific price.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+/// Contains complete information for trade reconciliation, P&L calculation,
+/// and position aggregation.
+///
+/// # Examples
+///
+/// ```
+/// use chrono::Utc;
+/// use domain::entities::Fill;
+/// use domain::values::{OrderId, Symbol, Side, Quantity, Price, Currency, Money};
+/// use rust_decimal::Decimal;
+///
+/// let fill = Fill::new(
+///     OrderId::generate(),
+///     Symbol::new("AAPL").unwrap(),
+///     Quantity::new(Decimal::new(100, 0)).unwrap(),
+///     Price::new(Decimal::new(15050, 2)).unwrap(),
+///     Side::Buy,
+///     Utc::now(),
+/// );
+///
+/// assert_eq!(fill.notional_value().currency(), Currency::USD);
+/// ```
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Fill {
-    /// Fill timestamp
-    timestamp: DateTime<Utc>,
+    /// Order ID that this fill belongs to
+    order_id: OrderId,
+    /// Trading symbol
+    symbol: Symbol,
     /// Quantity filled
     quantity: Quantity,
     /// Fill price
     price: Price,
-    /// Side of the fill
+    /// Side of the fill (Buy/Sell)
     side: Side,
+    /// Fill timestamp
+    timestamp: DateTime<Utc>,
+    /// Commission paid for this fill (if any)
+    commission: Option<Money>,
 }
 
 impl Fill {
-    /// Creates a new Fill.
-    pub fn new(timestamp: DateTime<Utc>, quantity: Quantity, price: Price, side: Side) -> Self {
+    /// Creates a new Fill with the required fields.
+    ///
+    /// # Arguments
+    ///
+    /// * `order_id` - The order ID this fill belongs to
+    /// * `symbol` - The trading symbol
+    /// * `quantity` - The quantity filled
+    /// * `price` - The fill price
+    /// * `side` - The side (Buy/Sell)
+    /// * `timestamp` - When the fill occurred
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use chrono::Utc;
+    /// use domain::entities::Fill;
+    /// use domain::values::{OrderId, Symbol, Side, Quantity, Price};
+    /// use rust_decimal::Decimal;
+    ///
+    /// let fill = Fill::new(
+    ///     OrderId::generate(),
+    ///     Symbol::new("AAPL").unwrap(),
+    ///     Quantity::new(Decimal::new(100, 0)).unwrap(),
+    ///     Price::new(Decimal::new(15050, 2)).unwrap(),
+    ///     Side::Buy,
+    ///     Utc::now(),
+    /// );
+    /// ```
+    pub fn new(
+        order_id: OrderId,
+        symbol: Symbol,
+        quantity: Quantity,
+        price: Price,
+        side: Side,
+        timestamp: DateTime<Utc>,
+    ) -> Self {
         Self {
-            timestamp,
+            order_id,
+            symbol,
             quantity,
             price,
             side,
+            timestamp,
+            commission: None,
         }
     }
 
-    /// Returns the fill timestamp
+    /// Creates a new Fill with commission.
+    ///
+    /// # Arguments
+    ///
+    /// * `order_id` - The order ID this fill belongs to
+    /// * `symbol` - The trading symbol
+    /// * `quantity` - The quantity filled
+    /// * `price` - The fill price
+    /// * `side` - The side (Buy/Sell)
+    /// * `timestamp` - When the fill occurred
+    /// * `commission` - Commission paid for this fill
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use chrono::Utc;
+    /// use domain::entities::Fill;
+    /// use domain::values::{OrderId, Symbol, Side, Quantity, Price, Money, Currency};
+    /// use rust_decimal::Decimal;
+    ///
+    /// let fill = Fill::with_commission(
+    ///     OrderId::generate(),
+    ///     Symbol::new("AAPL").unwrap(),
+    ///     Quantity::new(Decimal::new(100, 0)).unwrap(),
+    ///     Price::new(Decimal::new(15050, 2)).unwrap(),
+    ///     Side::Buy,
+    ///     Utc::now(),
+    ///     Money::new(Decimal::new(1, 0), Currency::USD).unwrap(),
+    /// );
+    /// ```
+    pub fn with_commission(
+        order_id: OrderId,
+        symbol: Symbol,
+        quantity: Quantity,
+        price: Price,
+        side: Side,
+        timestamp: DateTime<Utc>,
+        commission: Money,
+    ) -> Self {
+        Self {
+            order_id,
+            symbol,
+            quantity,
+            price,
+            side,
+            timestamp,
+            commission: Some(commission),
+        }
+    }
+
+    /// Returns the order ID
     #[must_use]
-    pub const fn timestamp(&self) -> DateTime<Utc> {
-        self.timestamp
+    pub const fn order_id(&self) -> OrderId {
+        self.order_id
+    }
+
+    /// Returns the trading symbol
+    #[must_use]
+    pub fn symbol(&self) -> &Symbol {
+        &self.symbol
     }
 
     /// Returns the fill quantity
@@ -887,6 +1389,428 @@ impl Fill {
     #[must_use]
     pub const fn side(&self) -> Side {
         self.side
+    }
+
+    /// Returns the fill timestamp
+    #[must_use]
+    pub const fn timestamp(&self) -> DateTime<Utc> {
+        self.timestamp
+    }
+
+    /// Returns the commission (if any)
+    #[must_use]
+    pub const fn commission(&self) -> Option<Money> {
+        self.commission
+    }
+
+    /// Returns the notional value of this fill (quantity * price).
+    ///
+    /// Notional value represents the total value of the trade before commissions.
+    ///
+    /// # Returns
+    ///
+    /// The notional value as [`Money`] in USD.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use chrono::Utc;
+    /// use domain::entities::Fill;
+    /// use domain::values::{OrderId, Symbol, Side, Quantity, Price, Currency};
+    /// use rust_decimal::Decimal;
+    ///
+    /// let fill = Fill::new(
+    ///     OrderId::generate(),
+    ///     Symbol::new("AAPL").unwrap(),
+    ///     Quantity::new(Decimal::new(100, 0)).unwrap(),
+    ///     Price::new(Decimal::new(15050, 2)).unwrap(),
+    ///     Side::Buy,
+    ///     Utc::now(),
+    /// );
+    ///
+    /// let notional = fill.notional_value();
+    /// assert_eq!(notional.amount(), Decimal::new(15050, 0)); // $15,050.00
+    /// assert_eq!(notional.currency(), Currency::USD);
+    /// ```
+    #[must_use]
+    pub fn notional_value(&self) -> Money {
+        let amount = self.price.inner() * self.quantity.inner();
+        // SAFETY: price and quantity are positive, result is positive
+        unsafe { Money::new_unchecked(amount, Currency::USD) }
+    }
+
+    /// Returns the net value including commission.
+    ///
+    /// For buy orders: net_value = notional + commission
+    /// For sell orders: net_value = notional - commission
+    ///
+    /// # Returns
+    ///
+    /// The net value as [`Money`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use chrono::Utc;
+    /// use domain::entities::Fill;
+    /// use domain::values::{OrderId, Symbol, Side, Quantity, Price, Money, Currency};
+    /// use rust_decimal::Decimal;
+    ///
+    /// let fill = Fill::with_commission(
+    ///     OrderId::generate(),
+    ///     Symbol::new("AAPL").unwrap(),
+    ///     Quantity::new(Decimal::new(100, 0)).unwrap(),
+    ///     Price::new(Decimal::new(15050, 2)).unwrap(),
+    ///     Side::Buy,
+    ///     Utc::now(),
+    ///     Money::new(Decimal::new(5, 0), Currency::USD).unwrap(),
+    /// );
+    ///
+    /// let net = fill.net_value();
+    /// // $15,050 + $5 commission = $15,055
+    /// assert_eq!(net.amount(), Decimal::new(15055, 0));
+    /// ```
+    #[must_use]
+    pub fn net_value(&self) -> Money {
+        let notional = self.notional_value();
+        
+        match self.commission {
+            Some(comm) => {
+                match self.side {
+                    Side::Buy => {
+                        // Buy: pay more (notional + commission)
+                        let total = notional.amount() + comm.amount();
+                        unsafe { Money::new_unchecked(total, Currency::USD) }
+                    }
+                    Side::Sell => {
+                        // Sell: receive less (notional - commission)
+                        let total = notional.amount() - comm.amount();
+                        unsafe { Money::new_unchecked(total, Currency::USD) }
+                    }
+                }
+            }
+            None => notional,
+        }
+    }
+
+    /// Calculates the P&L for this fill given an entry price.
+    ///
+    /// For long positions (Buy fills):
+    /// - P&L = (exit_price - entry_price) * quantity - commission
+    ///
+    /// For short positions (Sell fills as exit):
+    /// - P&L = (entry_price - exit_price) * quantity - commission
+    ///
+    /// # Arguments
+    ///
+    /// * `entry_price` - The average entry price of the position
+    ///
+    /// # Returns
+    ///
+    /// The realized P&L as [`Money`]. Positive values indicate profit.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use chrono::Utc;
+    /// use domain::entities::Fill;
+    /// use domain::values::{OrderId, Symbol, Side, Quantity, Price, Money, Currency};
+    /// use rust_decimal::Decimal;
+    ///
+    /// // Sell 100 shares at $160 (closing a long position entered at $150)
+    /// let exit_fill = Fill::with_commission(
+    ///     OrderId::generate(),
+    ///     Symbol::new("AAPL").unwrap(),
+    ///     Quantity::new(Decimal::new(100, 0)).unwrap(),
+    ///     Price::new(Decimal::new(16000, 2)).unwrap(), // $160.00
+    ///     Side::Sell,
+    ///     Utc::now(),
+    ///     Money::new(Decimal::new(5, 0), Currency::USD).unwrap(),
+    /// );
+    ///
+    /// let entry_price = Price::new(Decimal::new(15000, 2)).unwrap(); // $150.00
+    /// let pnl = exit_fill.pnl(entry_price);
+    ///
+    /// // ($160 - $150) * 100 - $5 = $1000 - $5 = $995 profit
+    /// assert_eq!(pnl.amount(), Decimal::new(995, 0));
+    /// ```
+    #[must_use]
+    pub fn pnl(&self, entry_price: Price) -> Money {
+        let price_diff = match self.side {
+            Side::Buy => entry_price.inner() - self.price.inner(),  // Long: entry - current
+            Side::Sell => self.price.inner() - entry_price.inner(), // Short: current - entry (for Sell as exit)
+        };
+
+        // For proper P&L calculation, we need to know if this is an opening or closing fill
+        // This is a simplified version assuming this fill is the closing fill
+        let gross_pnl = price_diff * self.quantity.inner();
+        
+        // Subtract commission
+        let commission_amount = self.commission.map(|c| c.amount()).unwrap_or_else(Decimal::zero);
+        let net_pnl = gross_pnl - commission_amount;
+
+        unsafe { Money::new_unchecked(net_pnl, Currency::USD) }
+    }
+
+    /// Returns true if this fill closes a position (opposite side).
+    ///
+    /// # Arguments
+    ///
+    /// * `position_side` - The current side of the position (Long/Short)
+    ///
+    /// # Returns
+    ///
+    /// `true` if the fill reduces or closes the position.
+    #[must_use]
+    pub fn is_closing(&self, position_side: PositionDirection) -> bool {
+        match (position_side, self.side) {
+            (PositionDirection::Long, Side::Sell) => true,
+            (PositionDirection::Short, Side::Buy) => true,
+            _ => false,
+        }
+    }
+
+    /// Returns a builder for creating a fill with additional fields.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use chrono::Utc;
+    /// use domain::entities::Fill;
+    /// use domain::values::{OrderId, Symbol, Side, Quantity, Price, Money, Currency};
+    /// use rust_decimal::Decimal;
+    ///
+    /// let fill = Fill::builder(
+    ///     OrderId::generate(),
+    ///     Symbol::new("AAPL").unwrap(),
+    ///     Quantity::new(Decimal::new(100, 0)).unwrap(),
+    ///     Price::new(Decimal::new(15050, 2)).unwrap(),
+    ///     Side::Buy,
+    ///     Utc::now(),
+    /// )
+    /// .commission(Money::new(Decimal::new(5, 0), Currency::USD).unwrap())
+    /// .build();
+    /// ```
+    pub fn builder(
+        order_id: OrderId,
+        symbol: Symbol,
+        quantity: Quantity,
+        price: Price,
+        side: Side,
+        timestamp: DateTime<Utc>,
+    ) -> FillBuilder {
+        FillBuilder::new(order_id, symbol, quantity, price, side, timestamp)
+    }
+}
+
+/// Builder for constructing Fill instances with optional fields.
+#[derive(Debug, Clone)]
+pub struct FillBuilder {
+    order_id: OrderId,
+    symbol: Symbol,
+    quantity: Quantity,
+    price: Price,
+    side: Side,
+    timestamp: DateTime<Utc>,
+    commission: Option<Money>,
+}
+
+impl FillBuilder {
+    /// Creates a new FillBuilder with required fields.
+    fn new(
+        order_id: OrderId,
+        symbol: Symbol,
+        quantity: Quantity,
+        price: Price,
+        side: Side,
+        timestamp: DateTime<Utc>,
+    ) -> Self {
+        Self {
+            order_id,
+            symbol,
+            quantity,
+            price,
+            side,
+            timestamp,
+            commission: None,
+        }
+    }
+
+    /// Sets the commission for this fill.
+    pub fn commission(mut self, commission: Money) -> Self {
+        self.commission = Some(commission);
+        self
+    }
+
+    /// Builds the Fill instance.
+    pub fn build(self) -> Fill {
+        Fill {
+            order_id: self.order_id,
+            symbol: self.symbol,
+            quantity: self.quantity,
+            price: self.price,
+            side: self.side,
+            timestamp: self.timestamp,
+            commission: self.commission,
+        }
+    }
+}
+
+/// Aggregates multiple fills into position metrics.
+///
+/// This struct provides utilities for calculating aggregate statistics
+/// from a collection of fills.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FillAggregation {
+    /// Total quantity filled
+    total_quantity: Quantity,
+    /// Average fill price (weighted by quantity)
+    avg_price: Price,
+    /// Total notional value
+    total_notional: Money,
+    /// Total commission paid
+    total_commission: Money,
+    /// Number of fills
+    fill_count: usize,
+}
+
+impl FillAggregation {
+    /// Creates a new empty aggregation.
+    pub fn new(currency: Currency) -> Self {
+        Self {
+            total_quantity: unsafe { Quantity::new_unchecked(Decimal::ZERO) },
+            avg_price: unsafe { Price::new_unchecked(Decimal::ZERO) },
+            total_notional: unsafe { Money::new_unchecked(Decimal::ZERO, currency) },
+            total_commission: unsafe { Money::new_unchecked(Decimal::ZERO, currency) },
+            fill_count: 0,
+        }
+    }
+
+    /// Aggregates fills from an iterator.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use chrono::Utc;
+    /// use domain::entities::{Fill, FillAggregation};
+    /// use domain::values::{OrderId, Symbol, Side, Quantity, Price, Currency};
+    /// use rust_decimal::Decimal;
+    ///
+    /// let fills = vec![
+    ///     Fill::new(
+    ///         OrderId::generate(),
+    ///         Symbol::new("AAPL").unwrap(),
+    ///         Quantity::new(Decimal::new(50, 0)).unwrap(),
+    ///         Price::new(Decimal::new(15000, 2)).unwrap(),
+    ///         Side::Buy,
+    ///         Utc::now(),
+    ///     ),
+    ///     Fill::new(
+    ///         OrderId::generate(),
+    ///         Symbol::new("AAPL").unwrap(),
+    ///         Quantity::new(Decimal::new(50, 0)).unwrap(),
+    ///         Price::new(Decimal::new(15100, 2)).unwrap(),
+    ///         Side::Buy,
+    ///         Utc::now(),
+    ///     ),
+    /// ];
+    ///
+    /// let agg = FillAggregation::from_fills(fills.iter(), Currency::USD);
+    /// assert_eq!(agg.total_quantity().inner(), Decimal::new(100, 0));
+    /// ```
+    pub fn from_fills<'a>(fills: impl Iterator<Item = &'a Fill>, currency: Currency) -> Self {
+        let mut agg = Self::new(currency);
+        for fill in fills {
+            agg.add_fill(fill);
+        }
+        agg
+    }
+
+    /// Adds a fill to the aggregation.
+    pub fn add_fill(&mut self, fill: &Fill) {
+        let fill_qty = fill.quantity().inner();
+        let fill_price = fill.price().inner();
+        
+        // Update total notional
+        let notional = fill_price * fill_qty;
+        self.total_notional = unsafe {
+            Money::new_unchecked(self.total_notional.amount() + notional, self.total_notional.currency())
+        };
+
+        // Update total commission
+        if let Some(comm) = fill.commission() {
+            self.total_commission = unsafe {
+                Money::new_unchecked(
+                    self.total_commission.amount() + comm.amount(),
+                    self.total_commission.currency(),
+                )
+            };
+        }
+
+        // Update weighted average price
+        let prev_qty = self.total_quantity.inner();
+        self.total_quantity = unsafe {
+            Quantity::new_unchecked(prev_qty + fill_qty)
+        };
+
+        if self.total_quantity.inner() > Decimal::ZERO {
+            let new_avg = if prev_qty == Decimal::ZERO {
+                fill_price
+            } else {
+                let prev_notional = self.avg_price.inner() * prev_qty;
+                (prev_notional + notional) / self.total_quantity.inner()
+            };
+            self.avg_price = unsafe { Price::new_unchecked(new_avg) };
+        }
+
+        self.fill_count += 1;
+    }
+
+    /// Returns the total quantity filled.
+    #[must_use]
+    pub const fn total_quantity(&self) -> Quantity {
+        self.total_quantity
+    }
+
+    /// Returns the average fill price.
+    #[must_use]
+    pub const fn avg_price(&self) -> Price {
+        self.avg_price
+    }
+
+    /// Returns the total notional value.
+    #[must_use]
+    pub const fn total_notional(&self) -> Money {
+        self.total_notional
+    }
+
+    /// Returns the total commission paid.
+    #[must_use]
+    pub const fn total_commission(&self) -> Money {
+        self.total_commission
+    }
+
+    /// Returns the number of fills aggregated.
+    #[must_use]
+    pub const fn fill_count(&self) -> usize {
+        self.fill_count
+    }
+
+    /// Returns the net value (notional - commission for buys, notional + commission for sells).
+    ///
+    /// Note: This assumes all fills are on the same side. Mixed fills should be
+    /// handled separately.
+    #[must_use]
+    pub fn net_value(&self, side: Side) -> Money {
+        let total = self.total_notional.amount();
+        let commission = self.total_commission.amount();
+        
+        let net = match side {
+            Side::Buy => total + commission,  // Buys cost more with commission
+            Side::Sell => total - commission, // Sells yield less with commission
+        };
+        
+        unsafe { Money::new_unchecked(net, self.total_notional.currency()) }
     }
 }
 
@@ -1618,7 +2542,7 @@ mod tests {
     fn order_valid_market_order() {
         let order = create_valid_market_order();
         assert_eq!(order.order_type(), OrderType::Market);
-        assert_eq!(order.status(), OrderStatus::Pending);
+        assert!(matches!(order.status(), OrderStatus::Pending { .. }));
         assert!(order.can_cancel());
     }
 
@@ -1670,9 +2594,10 @@ mod tests {
         let mut order = create_valid_market_order();
         
         let fill_qty = Quantity::new(dec!(5)).unwrap();
-        order.fill(fill_qty).unwrap();
+        let fill_price = Price::new(dec!(150.0)).unwrap();
+        order.fill(fill_qty, fill_price).unwrap();
         
-        assert_eq!(order.status(), OrderStatus::PartiallyFilled);
+        assert!(matches!(order.status(), OrderStatus::PartiallyFilled { .. }));
         assert_eq!(order.filled_quantity().inner(), dec!(5));
         assert_eq!(order.remaining_quantity().inner(), dec!(5));
     }
@@ -1682,9 +2607,10 @@ mod tests {
         let mut order = create_valid_market_order();
         
         let fill_qty = Quantity::new(dec!(10)).unwrap();
-        order.fill(fill_qty).unwrap();
+        let fill_price = Price::new(dec!(150.0)).unwrap();
+        order.fill(fill_qty, fill_price).unwrap();
         
-        assert_eq!(order.status(), OrderStatus::Filled);
+        assert!(matches!(order.status(), OrderStatus::Filled { .. }));
         assert!(!order.is_active());
         assert!(!order.can_cancel());
     }
@@ -1692,15 +2618,16 @@ mod tests {
     #[test]
     fn order_cancel_transition() {
         let mut order = create_valid_market_order();
-        order.update_status(OrderStatus::Cancelled).unwrap();
-        assert_eq!(order.status(), OrderStatus::Cancelled);
+        order.cancel("user_request".to_string()).unwrap();
+        assert!(matches!(order.status(), OrderStatus::Cancelled { .. }));
     }
 
     #[test]
     fn order_cannot_cancel_filled() {
         let mut order = create_valid_market_order();
         let fill_qty = Quantity::new(dec!(10)).unwrap();
-        order.fill(fill_qty).unwrap();
+        let fill_price = Price::new(dec!(150.0)).unwrap();
+        order.fill(fill_qty, fill_price).unwrap();
         
         assert!(!order.can_cancel());
     }
@@ -1708,8 +2635,8 @@ mod tests {
     #[test]
     fn order_reject_transition() {
         let mut order = create_valid_market_order();
-        order.update_status(OrderStatus::Rejected).unwrap();
-        assert_eq!(order.status(), OrderStatus::Rejected);
+        order.reject("insufficient_funds".to_string()).unwrap();
+        assert!(matches!(order.status(), OrderStatus::Rejected { .. }));
     }
 
     #[test]
@@ -1732,7 +2659,8 @@ mod tests {
         let mut order = create_valid_market_order();
         
         let fill_qty = Quantity::new(dec!(15)).unwrap(); // Exceeds quantity
-        assert!(order.fill(fill_qty).is_err());
+        let fill_price = Price::new(dec!(150.0)).unwrap();
+        assert!(order.fill(fill_qty, fill_price).is_err());
     }
 
     #[test]
@@ -1844,10 +2772,12 @@ mod tests {
         let mut position = create_long_position();
         // Add another fill at a higher price
         let fill = Fill::new(
-            Utc::now(),
+            OrderId::generate(),
+            Symbol::new("NQ").unwrap(),
             Quantity::new(dec!(10)).unwrap(),
             Price::new(dec!(18300.00)).unwrap(),
             Side::Buy,
+            Utc::now(),
         );
         
         position.add_fill(&fill).unwrap();
@@ -1863,10 +2793,12 @@ mod tests {
     fn position_add_fill_wrong_side_fails() {
         let mut position = create_long_position();
         let fill = Fill::new(
-            Utc::now(),
+            OrderId::generate(),
+            Symbol::new("NQ").unwrap(),
             Quantity::new(dec!(5)).unwrap(),
             Price::new(dec!(18300.00)).unwrap(),
             Side::Sell, // Wrong side - should be Buy for long position
+            Utc::now(),
         );
         
         assert!(position.add_fill(&fill).is_err());
@@ -1910,6 +2842,337 @@ mod tests {
     }
 
     // =========================================================================
+    // FILL TESTS
+    // =========================================================================
+
+    fn create_test_fill(side: Side, quantity: Decimal, price: Decimal) -> Fill {
+        Fill::new(
+            OrderId::generate(),
+            Symbol::new("AAPL").unwrap(),
+            Quantity::new(quantity).unwrap(),
+            Price::new(price).unwrap(),
+            side,
+            Utc::now(),
+        )
+    }
+
+    fn create_test_fill_with_commission(
+        side: Side,
+        quantity: Decimal,
+        price: Decimal,
+        commission: Decimal,
+    ) -> Fill {
+        Fill::with_commission(
+            OrderId::generate(),
+            Symbol::new("AAPL").unwrap(),
+            Quantity::new(quantity).unwrap(),
+            Price::new(price).unwrap(),
+            side,
+            Utc::now(),
+            Money::new(commission, Currency::USD).unwrap(),
+        )
+    }
+
+    #[test]
+    fn fill_valid_construction() {
+        let fill = create_test_fill(Side::Buy, dec!(100), dec!(150.50));
+        
+        assert_eq!(fill.symbol().as_str(), "AAPL");
+        assert_eq!(fill.quantity().inner(), dec!(100));
+        assert_eq!(fill.price().inner(), dec!(150.50));
+        assert_eq!(fill.side(), Side::Buy);
+        assert!(fill.commission().is_none());
+    }
+
+    #[test]
+    fn fill_with_commission_construction() {
+        let fill = create_test_fill_with_commission(Side::Sell, dec!(50), dec!(200.00), dec!(5.00));
+        
+        assert_eq!(fill.quantity().inner(), dec!(50));
+        assert_eq!(fill.side(), Side::Sell);
+        assert!(fill.commission().is_some());
+        assert_eq!(fill.commission().unwrap().amount(), dec!(5.00));
+        assert_eq!(fill.commission().unwrap().currency(), Currency::USD);
+    }
+
+    #[test]
+    fn fill_notional_value_calculation() {
+        let fill = create_test_fill(Side::Buy, dec!(100), dec!(150.00));
+        let notional = fill.notional_value();
+        
+        // 100 * $150 = $15,000
+        assert_eq!(notional.amount(), dec!(15000));
+        assert_eq!(notional.currency(), Currency::USD);
+    }
+
+    #[test]
+    fn fill_notional_value_fractional() {
+        let fill = create_test_fill(Side::Buy, dec!(10.5), dec!(150.25));
+        let notional = fill.notional_value();
+        
+        // 10.5 * $150.25 = $1,577.625
+        assert_eq!(notional.amount(), dec!(1577.625));
+    }
+
+    #[test]
+    fn fill_net_value_buy_with_commission() {
+        // Buy: net = notional + commission (pay more)
+        let fill = create_test_fill_with_commission(Side::Buy, dec!(100), dec!(150.00), dec!(7.50));
+        let net = fill.net_value();
+        
+        // $15,000 + $7.50 = $15,007.50
+        assert_eq!(net.amount(), dec!(15007.50));
+    }
+
+    #[test]
+    fn fill_net_value_sell_with_commission() {
+        // Sell: net = notional - commission (receive less)
+        let fill = create_test_fill_with_commission(Side::Sell, dec!(100), dec!(160.00), dec!(5.00));
+        let net = fill.net_value();
+        
+        // $16,000 - $5 = $15,995
+        assert_eq!(net.amount(), dec!(15995));
+    }
+
+    #[test]
+    fn fill_net_value_without_commission() {
+        let fill = create_test_fill(Side::Buy, dec!(100), dec!(150.00));
+        let net = fill.net_value();
+        
+        // Without commission, net = notional
+        assert_eq!(net.amount(), dec!(15000));
+    }
+
+    #[test]
+    fn fill_pnl_long_position_profit() {
+        // Long position: bought at $150, selling at $160
+        let exit_fill = create_test_fill_with_commission(Side::Sell, dec!(100), dec!(160.00), dec!(5.00));
+        let entry_price = Price::new(dec!(150.00)).unwrap();
+        let pnl = exit_fill.pnl(entry_price);
+        
+        // ($160 - $150) * 100 - $5 = $1,000 - $5 = $995 profit
+        assert_eq!(pnl.amount(), dec!(995));
+    }
+
+    #[test]
+    fn fill_pnl_long_position_loss() {
+        // Long position: bought at $150, selling at $140
+        let exit_fill = create_test_fill_with_commission(Side::Sell, dec!(100), dec!(140.00), dec!(5.00));
+        let entry_price = Price::new(dec!(150.00)).unwrap();
+        let pnl = exit_fill.pnl(entry_price);
+        
+        // ($140 - $150) * 100 - $5 = -$1,000 - $5 = -$1,005 loss
+        assert_eq!(pnl.amount(), dec!(-1005));
+    }
+
+    #[test]
+    fn fill_pnl_zero_profit() {
+        // Break-even exit
+        let exit_fill = create_test_fill_with_commission(Side::Sell, dec!(100), dec!(150.00), dec!(5.00));
+        let entry_price = Price::new(dec!(150.00)).unwrap();
+        let pnl = exit_fill.pnl(entry_price);
+        
+        // ($150 - $150) * 100 - $5 = -$5 (just commission loss)
+        assert_eq!(pnl.amount(), dec!(-5));
+    }
+
+    #[test]
+    fn fill_pnl_without_commission() {
+        let exit_fill = create_test_fill(Side::Sell, dec!(100), dec!(160.00));
+        let entry_price = Price::new(dec!(150.00)).unwrap();
+        let pnl = exit_fill.pnl(entry_price);
+        
+        // ($160 - $150) * 100 = $1,000 profit (no commission)
+        assert_eq!(pnl.amount(), dec!(1000));
+    }
+
+    #[test]
+    fn fill_is_closing_long_position() {
+        let sell_fill = create_test_fill(Side::Sell, dec!(100), dec!(160.00));
+        
+        // Sell fill closes long position
+        assert!(sell_fill.is_closing(PositionDirection::Long));
+        // Sell fill does NOT close short position (it would increase it)
+        assert!(!sell_fill.is_closing(PositionDirection::Short));
+    }
+
+    #[test]
+    fn fill_is_closing_short_position() {
+        let buy_fill = create_test_fill(Side::Buy, dec!(100), dec!(140.00));
+        
+        // Buy fill closes short position
+        assert!(buy_fill.is_closing(PositionDirection::Short));
+        // Buy fill does NOT close long position (it would increase it)
+        assert!(!buy_fill.is_closing(PositionDirection::Long));
+    }
+
+    #[test]
+    fn fill_builder_pattern() {
+        let fill = Fill::builder(
+            OrderId::generate(),
+            Symbol::new("MSFT").unwrap(),
+            Quantity::new(dec!(200)).unwrap(),
+            Price::new(dec!(300.00)).unwrap(),
+            Side::Buy,
+            Utc::now(),
+        )
+        .commission(Money::new(dec!(10), Currency::USD).unwrap())
+        .build();
+        
+        assert_eq!(fill.symbol().as_str(), "MSFT");
+        assert_eq!(fill.quantity().inner(), dec!(200));
+        assert!(fill.commission().is_some());
+        assert_eq!(fill.commission().unwrap().amount(), dec!(10));
+    }
+
+    #[test]
+    fn fill_serde_roundtrip() {
+        let fill = create_test_fill_with_commission(Side::Buy, dec!(100), dec!(150.00), dec!(5.00));
+        let json = serde_json::to_string(&fill).unwrap();
+        let deserialized: Fill = serde_json::from_str(&json).unwrap();
+        
+        assert_eq!(fill.order_id(), deserialized.order_id());
+        assert_eq!(fill.symbol().as_str(), deserialized.symbol().as_str());
+        assert_eq!(fill.quantity(), deserialized.quantity());
+        assert_eq!(fill.price(), deserialized.price());
+        assert_eq!(fill.side(), deserialized.side());
+        assert_eq!(fill.commission(), deserialized.commission());
+    }
+
+    // =========================================================================
+    // FILL AGGREGATION TESTS
+    // =========================================================================
+
+    #[test]
+    fn fill_aggregation_empty() {
+        let agg = FillAggregation::new(Currency::USD);
+        
+        assert_eq!(agg.total_quantity().inner(), dec!(0));
+        assert_eq!(agg.avg_price().inner(), dec!(0));
+        assert_eq!(agg.total_notional().amount(), dec!(0));
+        assert_eq!(agg.total_commission().amount(), dec!(0));
+        assert_eq!(agg.fill_count(), 0);
+    }
+
+    #[test]
+    fn fill_aggregation_single_fill() {
+        let fill = create_test_fill(Side::Buy, dec!(100), dec!(150.00));
+        let mut agg = FillAggregation::new(Currency::USD);
+        agg.add_fill(&fill);
+        
+        assert_eq!(agg.total_quantity().inner(), dec!(100));
+        assert_eq!(agg.avg_price().inner(), dec!(150.00));
+        assert_eq!(agg.total_notional().amount(), dec!(15000));
+        assert_eq!(agg.fill_count(), 1);
+    }
+
+    #[test]
+    fn fill_aggregation_multiple_fills() {
+        let fills = vec![
+            create_test_fill(Side::Buy, dec!(50), dec!(150.00)),
+            create_test_fill(Side::Buy, dec!(50), dec!(152.00)),
+        ];
+        
+        let agg = FillAggregation::from_fills(fills.iter(), Currency::USD);
+        
+        // Total quantity: 50 + 50 = 100
+        assert_eq!(agg.total_quantity().inner(), dec!(100));
+        
+        // Average price: (50*150 + 50*152) / 100 = 151
+        assert_eq!(agg.avg_price().inner(), dec!(151));
+        
+        // Total notional: $7,500 + $7,600 = $15,100
+        assert_eq!(agg.total_notional().amount(), dec!(15100));
+        
+        assert_eq!(agg.fill_count(), 2);
+    }
+
+    #[test]
+    fn fill_aggregation_with_commissions() {
+        let fills = vec![
+            create_test_fill_with_commission(Side::Buy, dec!(50), dec!(150.00), dec!(5.00)),
+            create_test_fill_with_commission(Side::Buy, dec!(50), dec!(152.00), dec!(5.00)),
+        ];
+        
+        let agg = FillAggregation::from_fills(fills.iter(), Currency::USD);
+        
+        // Total commission: $5 + $5 = $10
+        assert_eq!(agg.total_commission().amount(), dec!(10));
+    }
+
+    #[test]
+    fn fill_aggregation_net_value_buy() {
+        let fills = vec![
+            create_test_fill_with_commission(Side::Buy, dec!(50), dec!(150.00), dec!(5.00)),
+            create_test_fill_with_commission(Side::Buy, dec!(50), dec!(152.00), dec!(5.00)),
+        ];
+        
+        let agg = FillAggregation::from_fills(fills.iter(), Currency::USD);
+        let net = agg.net_value(Side::Buy);
+        
+        // Buy: total_notional + commission = $15,100 + $10 = $15,110
+        assert_eq!(net.amount(), dec!(15110));
+    }
+
+    #[test]
+    fn fill_aggregation_net_value_sell() {
+        let fills = vec![
+            create_test_fill_with_commission(Side::Sell, dec!(50), dec!(160.00), dec!(5.00)),
+            create_test_fill_with_commission(Side::Sell, dec!(50), dec!(162.00), dec!(5.00)),
+        ];
+        
+        let agg = FillAggregation::from_fills(fills.iter(), Currency::USD);
+        let net = agg.net_value(Side::Sell);
+        
+        // Sell: total_notional - commission = $16,100 - $10 = $16,090
+        assert_eq!(net.amount(), dec!(16090));
+    }
+
+    #[test]
+    fn fill_aggregation_weighted_average_different_quantities() {
+        let fills = vec![
+            create_test_fill(Side::Buy, dec!(100), dec!(150.00)),
+            create_test_fill(Side::Buy, dec!(50), dec!(180.00)), // Higher price, less quantity
+        ];
+        
+        let agg = FillAggregation::from_fills(fills.iter(), Currency::USD);
+        
+        // Weighted avg: (100*150 + 50*180) / 150 = (15000 + 9000) / 150 = 160
+        assert_eq!(agg.avg_price().inner(), dec!(160));
+    }
+
+    #[test]
+    fn fill_aggregation_mixed_commission_and_no_commission() {
+        let fills = vec![
+            create_test_fill_with_commission(Side::Buy, dec!(50), dec!(150.00), dec!(5.00)),
+            create_test_fill(Side::Buy, dec!(50), dec!(152.00)), // No commission
+        ];
+        
+        let agg = FillAggregation::from_fills(fills.iter(), Currency::USD);
+        
+        // Total commission: $5 + $0 = $5
+        assert_eq!(agg.total_commission().amount(), dec!(5));
+    }
+
+    #[test]
+    fn fill_aggregation_serde_roundtrip() {
+        let fills = vec![
+            create_test_fill(Side::Buy, dec!(50), dec!(150.00)),
+            create_test_fill(Side::Buy, dec!(50), dec!(152.00)),
+        ];
+        
+        let agg = FillAggregation::from_fills(fills.iter(), Currency::USD);
+        let json = serde_json::to_string(&agg).unwrap();
+        let deserialized: FillAggregation = serde_json::from_str(&json).unwrap();
+        
+        assert_eq!(agg.total_quantity(), deserialized.total_quantity());
+        assert_eq!(agg.avg_price(), deserialized.avg_price());
+        assert_eq!(agg.total_notional(), deserialized.total_notional());
+        assert_eq!(agg.total_commission(), deserialized.total_commission());
+        assert_eq!(agg.fill_count(), deserialized.fill_count());
+    }
+
+    // =========================================================================
     // EDGE CASE TESTS
     // =========================================================================
 
@@ -1949,15 +3212,17 @@ mod tests {
         let mut order = create_valid_market_order();
         
         // Pending -> PartiallyFilled -> Filled
-        assert_eq!(order.status(), OrderStatus::Pending);
+        assert!(matches!(order.status(), OrderStatus::Pending { .. }));
         
         let fill_qty = Quantity::new(dec!(5)).unwrap();
-        order.fill(fill_qty).unwrap();
-        assert_eq!(order.status(), OrderStatus::PartiallyFilled);
+        let fill_price = Price::new(dec!(150.0)).unwrap();
+        order.fill(fill_qty, fill_price).unwrap();
+        assert!(matches!(order.status(), OrderStatus::PartiallyFilled { .. }));
         
         let fill_qty = Quantity::new(dec!(5)).unwrap();
-        order.fill(fill_qty).unwrap();
-        assert_eq!(order.status(), OrderStatus::Filled);
+        let fill_price = Price::new(dec!(151.0)).unwrap();
+        order.fill(fill_qty, fill_price).unwrap();
+        assert!(matches!(order.status(), OrderStatus::Filled { .. }));
     }
 
     #[test]

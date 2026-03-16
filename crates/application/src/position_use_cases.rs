@@ -227,8 +227,8 @@ fn position_to_dto(position: &domain::Position) -> PositionDto {
         direction: position.direction().into(),
         quantity: position.quantity().inner(),
         avg_entry_price: position.avg_entry_price().inner(),
-        current_price: position.current_price().map(|p| p.inner()),
-        unrealized_pnl: position.unrealized_pnl().map(|m| m.amount()),
+        current_price: Some(position.current_price().inner()),
+        unrealized_pnl: Some(position.unrealized_pnl().amount()),
         realized_pnl: position.realized_pnl().amount(),
         opened_at: position.opened_at(),
     }

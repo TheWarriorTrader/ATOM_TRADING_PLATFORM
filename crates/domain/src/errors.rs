@@ -467,6 +467,58 @@ pub enum RepositoryError {
     },
 }
 
+impl RepositoryError {
+    /// Creates a connection failed error.
+    #[must_use]
+    pub fn connection(_reason: impl Into<String>) -> Self {
+        Self::ConnectionFailed
+    }
+
+    /// Creates a query failed error.
+    #[must_use]
+    pub fn query(reason: impl Into<String>) -> Self {
+        Self::QueryFailed {
+            query: "unknown".to_string(),
+            reason: reason.into(),
+        }
+    }
+
+    /// Creates a not found error.
+    #[must_use]
+    pub fn not_found(id: impl Into<String>) -> Self {
+        Self::NotFound {
+            entity: "Record".to_string(),
+            id: id.into(),
+        }
+    }
+
+    /// Creates a duplicate key error.
+    #[must_use]
+    pub fn duplicate_key(key: impl Into<String>) -> Self {
+        Self::DuplicateKey {
+            entity: "Record".to_string(),
+            key: key.into(),
+        }
+    }
+
+    /// Creates a constraint violation error.
+    #[must_use]
+    pub fn constraint_violation(details: impl Into<String>) -> Self {
+        Self::ConstraintViolation {
+            constraint: "unknown".to_string(),
+            details: details.into(),
+        }
+    }
+
+    /// Creates a serialization failed error.
+    #[must_use]
+    pub fn serialization(reason: impl Into<String>) -> Self {
+        Self::SerializationFailed {
+            reason: reason.into(),
+        }
+    }
+}
+
 /// Errors during order execution.
 ///
 /// These errors occur when the broker rejects or fails to execute orders.

@@ -78,6 +78,12 @@ impl InfrastructureError {
         Self::Cache(msg.into())
     }
 
+    /// Creates a serialization error
+    #[must_use]
+    pub fn serialization(msg: impl Into<String>) -> Self {
+        Self::Serialization(msg.into())
+    }
+
     /// Creates a configuration error
     #[must_use]
     pub fn configuration(msg: impl Into<String>) -> Self {

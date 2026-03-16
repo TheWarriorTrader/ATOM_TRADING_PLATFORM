@@ -37,21 +37,29 @@ pub mod events;
 /// Repository trait definitions (interfaces only)
 pub mod repositories;
 
+/// Provider trait definitions (market data, execution)
+pub mod providers;
+
 /// Domain services (business rules)
 pub mod services;
 
 /// Error types for domain operations
 pub mod errors;
 
+/// Execution gateway trait for order routing
+pub mod execution;
+
 // Re-export commonly used types
 #[allow(ambiguous_glob_reexports)]
 pub use entities::*;
 pub use errors::{
-    ContextualError, DomainError, ErrorContext, ExecutionError, ProviderError, RepositoryError,
-    Result, StrategyError, ValidationError,
+    ContextualError, DomainError, DomainResult, ErrorContext, ExecutionError, ProviderError,
+    RepositoryError, Result, StrategyError, ValidationError,
 };
 pub use events::*;
+pub use providers::*;
 pub use repositories::*;
 pub use services::*;
+pub use execution::*;
 #[allow(ambiguous_glob_reexports)]
 pub use values::*;

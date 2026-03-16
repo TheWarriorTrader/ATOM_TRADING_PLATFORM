@@ -536,6 +536,12 @@ impl Volume {
         self.0
     }
 
+    /// Returns the inner value (alias for `as_i64`).
+    #[must_use]
+    pub const fn inner(&self) -> i64 {
+        self.0
+    }
+
     /// Returns a zero volume.
     #[must_use]
     pub const fn zero() -> Self {

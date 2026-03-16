@@ -832,19 +832,21 @@ Implementare:
 **File:** `crates/cli/src/commands/ingest.rs`
 
 Implementare:
-- [ ] Subcommand `ingest` con clap
-- [ ] Argomenti: `--symbol`, `--duration`, `--provider`
-- [ ] Connessione provider → repository
-- [ ] Progress logging
-- [ ] Graceful shutdown su Ctrl+C
+- [x] Subcommand `ingest` con clap
+- [x] Argomenti: `--symbol`, `--duration`, `--provider`, `--timeframe`, `--output-db`, `--output-stdout`
+- [x] Connessione provider → repository
+- [x] Progress logging con StatsReporter
+- [x] Graceful shutdown su Ctrl+C
+- [x] Batch insert ottimizzato per TimescaleDB
+- [x] Unit tests per parsing duration/timeframe
 
 **Acceptance:**
 ```bash
-cargo run --bin cli -- ingest --symbol NQ --duration 1h --provider ib
+cargo run --bin trading-core -- ingest --symbol NQ --duration 1h --provider ib
 # [INFO] Connecting to IB Gateway at localhost:7496
-# [INFO] Subscribed to NQ
-# [DATA] NQ 2026-03-13 14:30:05 18234.50 18235.00 18233.75 18234.75 1420 IB
-# [DATA] NQ 2026-03-13 14:30:10 18234.75 18236.00 18234.50 18235.25 1580 IB
+# [INFO] Subscribed to NQ (M1)
+# [DATA] NQ 2026-03-13 14:30:05 O:18234.50 H:18235.00 L:18233.75 C:18234.75 V:1420
+# [STATS] Received: 60, Saved: 60, Rate: 12.0 bars/sec, Elapsed: 5s
 # ...
 # [INFO] Saved 720 bars to TimescaleDB
 ```
@@ -859,11 +861,11 @@ cargo run --bin cli -- ingest --symbol NQ --duration 1h --provider ib
 **File:** `crates/infrastructure/src/messaging/event_bus.rs`
 
 Implementare:
-- [ ] EventBus con `tokio::sync::broadcast`
-- [ ] Subscribe/unsubscribe pattern
-- [ ] Topic filtering
-- [ ] Dead letter queue per errori
-- [ ] Metrics (events/sec, dropped messages)
+- [x] EventBus con `tokio::sync::broadcast`
+- [x] Subscribe/unsubscribe pattern
+- [x] Topic filtering
+- [x] Dead letter queue per errori
+- [x] Metrics (events/sec, dropped messages)
 
 ---
 

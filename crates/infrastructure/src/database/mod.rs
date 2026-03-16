@@ -52,3 +52,19 @@ impl DatabasePool {
 
 /// Repository implementations
 pub mod repositories;
+
+/// TimescaleDB market data repository implementations
+pub mod timescale;
+
+/// TimescaleDB order repository implementation
+pub mod order_repo;
+
+/// TimescaleDB fill repository implementation
+pub mod fill_repo;
+
+/// TimescaleDB position repository implementation
+pub mod position_repo;
+
+pub use order_repo::TimescaleOrderRepository;
+pub use fill_repo::TimescaleFillRepository;
+pub use position_repo::TimescalePositionRepository;

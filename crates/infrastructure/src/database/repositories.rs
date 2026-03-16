@@ -3,13 +3,14 @@
 //! SQLx-based implementations of domain repository traits.
 
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 
 use domain::{
-    Account, AccountRepository, Currency, EntityId, Order, OrderRepository, OrderSide, OrderStatus,
-    OrderType, Position, PositionDirection, PositionRepository, Symbol,
+    Account, AccountRepository, EntityId, Order, OrderRepository, OrderStatus, Position,
+    PositionRepository, RepositoryError, Symbol, OrderId, Fill, Bar, Tick, TimeFrame,
 };
-use domain::{DomainError, DomainResult, Price, Quantity};
+use domain::{DomainError, DomainResult};
 
 use crate::database::DatabasePool;
 use crate::errors::InfrastructureError;
@@ -70,29 +71,43 @@ impl SqlxOrderRepository {
 
 #[async_trait]
 impl OrderRepository for SqlxOrderRepository {
-    async fn find_by_id(&self, _id: EntityId) -> DomainResult<Option<Order>> {
+    async fn save(&self, _order: &Order) -> Result<(), RepositoryError> {
+        // Simplified implementation
+        Ok(())
+    }
+
+    async fn update(&self, _order: &Order) -> Result<(), RepositoryError> {
+        // Simplified implementation
+        Ok(())
+    }
+
+    async fn get(&self, _order_id: OrderId) -> Result<Option<Order>, RepositoryError> {
         // Simplified implementation
         Ok(None)
     }
 
-    async fn find_by_account(&self, _account_id: EntityId) -> DomainResult<Vec<Order>> {
+    async fn get_open(&self) -> Result<Vec<Order>, RepositoryError> {
         // Simplified implementation
         Ok(vec![])
     }
 
-    async fn find_active_by_account(&self, _account_id: EntityId) -> DomainResult<Vec<Order>> {
+    async fn get_by_symbol(&self, _symbol: &Symbol) -> Result<Vec<Order>, RepositoryError> {
         // Simplified implementation
         Ok(vec![])
     }
 
-    async fn save(&self, _order: &Order) -> DomainResult<()> {
+    async fn get_history(
+        &self,
+        _start: DateTime<Utc>,
+        _end: DateTime<Utc>,
+    ) -> Result<Vec<Order>, RepositoryError> {
         // Simplified implementation
-        Ok(())
+        Ok(vec![])
     }
 
-    async fn delete(&self, _id: EntityId) -> DomainResult<()> {
+    async fn count_by_status(&self, _status: OrderStatus) -> Result<u64, RepositoryError> {
         // Simplified implementation
-        Ok(())
+        Ok(0)
     }
 }
 
@@ -113,12 +128,27 @@ impl SqlxPositionRepository {
 
 #[async_trait]
 impl PositionRepository for SqlxPositionRepository {
-    async fn find_by_id(&self, _id: EntityId) -> DomainResult<Option<Position>> {
+    async fn save(&self, _position: &Position) -> Result<(), RepositoryError> {
+        // Simplified implementation
+        Ok(())
+    }
+
+    async fn upsert(&self, _position: &Position) -> Result<(), RepositoryError> {
+        // Simplified implementation
+        Ok(())
+    }
+
+    async fn find_by_id(&self, _id: EntityId) -> Result<Option<Position>, RepositoryError> {
         // Simplified implementation
         Ok(None)
     }
 
-    async fn find_by_account(&self, _account_id: EntityId) -> DomainResult<Vec<Position>> {
+    async fn find_by_symbol(&self, _symbol: &Symbol) -> Result<Option<Position>, RepositoryError> {
+        // Simplified implementation
+        Ok(None)
+    }
+
+    async fn find_open_positions(&self) -> Result<Vec<Position>, RepositoryError> {
         // Simplified implementation
         Ok(vec![])
     }
@@ -127,23 +157,31 @@ impl PositionRepository for SqlxPositionRepository {
         &self,
         _account_id: EntityId,
         _symbol: &Symbol,
-    ) -> DomainResult<Option<Position>> {
+    ) -> Result<Option<Position>, RepositoryError> {
         // Simplified implementation
         Ok(None)
     }
 
-    async fn find_open_positions(&self) -> DomainResult<Vec<Position>> {
-        // Simplified implementation
-        Ok(vec![])
-    }
-
-    async fn save(&self, _position: &Position) -> DomainResult<()> {
+    async fn close(&self, _id: EntityId) -> Result<(), RepositoryError> {
         // Simplified implementation
         Ok(())
     }
 
-    async fn delete(&self, _id: EntityId) -> DomainResult<()> {
+    async fn delete(&self, _id: EntityId) -> Result<(), RepositoryError> {
         // Simplified implementation
         Ok(())
+    }
+
+    async fn exists(&self, _id: EntityId) -> Result<bool, RepositoryError> {
+        // Simplified implementation
+        Ok(false)
+    }
+
+    async fn total_pnl(&self) -> Result<domain::values::Money, RepositoryError> {
+        Err(RepositoryError::query("Not implemented"))
+    }
+
+    async fn total_exposure(&self) -> Result<domain::values::Money, RepositoryError> {
+        Err(RepositoryError::query("Not implemented"))
     }
 }

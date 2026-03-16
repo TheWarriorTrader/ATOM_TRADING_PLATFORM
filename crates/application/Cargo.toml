@@ -28,6 +28,7 @@ async-trait = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 rust_decimal = { workspace = true }
+rust_decimal_macros = { workspace = true }
 
 [dev-dependencies]
 mockall = { workspace = true }
